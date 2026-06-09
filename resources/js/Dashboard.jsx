@@ -528,6 +528,7 @@ function Header({ onHome }) {
 
 function UserMenu({ user, isAdmin, onSettings, onLogout, settingsActive }) {
   const [open, setOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -600,13 +601,109 @@ function UserMenu({ user, isAdmin, onSettings, onLogout, settingsActive }) {
             />
           )}
           <MenuItem
+            icon={<KeyRound size={15} />}
+            label="Change password"
+            onClick={() => { setOpen(false); setChangingPassword(true); }}
+          />
+          <MenuItem
             icon={<LogOut size={15} />}
             label="Log out"
             onClick={() => { setOpen(false); onLogout(); }}
           />
         </div>
       )}
+      {changingPassword && <ChangePasswordModal onClose={() => setChangingPassword(false)} />}
     </div>
+  );
+}
+
+function ChangePasswordModal({ onClose }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (next !== confirm) { setError("New passwords do not match."); return; }
+    setLoading(true);
+    setError("");
+    api.put('/api/auth/password', { current_password: current, password: next, password_confirmation: confirm })
+      .then((r) => r.ok ? r.json() : r.json().then((d) => Promise.reject(d.message)))
+      .then(() => { setSuccess(true); setLoading(false); })
+      .catch((msg) => { setError(typeof msg === 'string' ? msg : 'Something went wrong.'); setLoading(false); });
+  };
+
+  return (
+    <Modal onClose={onClose} title="Change password">
+      {success ? (
+        <div className="space-y-4">
+          <p className="text-sm" style={{ color: BRAND.colors.textMuted }}>Your password has been updated successfully.</p>
+          <div className="flex justify-end">
+            <PrimaryButton onClick={onClose}><Check size={16} /> Done</PrimaryButton>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="space-y-4">
+          <Field label="Current password">
+            <div className="relative">
+              <input
+                type={showPw ? "text" : "password"}
+                value={current}
+                onChange={(e) => setCurrent(e.target.value)}
+                autoComplete="current-password"
+                required
+                className="w-full px-3 py-2.5 pr-10 text-sm outline-none"
+                style={inputStyle()}
+              />
+              <button type="button" onClick={() => setShowPw((s) => !s)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1"
+                style={{ color: BRAND.colors.textMuted }}>
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </Field>
+          <Field label="New password">
+            <input
+              type={showPw ? "text" : "password"}
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              autoComplete="new-password"
+              placeholder="At least 8 characters"
+              required minLength={8}
+              className="w-full px-3 py-2.5 text-sm outline-none"
+              style={inputStyle()}
+            />
+          </Field>
+          <Field label="Confirm new password">
+            <input
+              type={showPw ? "text" : "password"}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              autoComplete="new-password"
+              required
+              className="w-full px-3 py-2.5 text-sm outline-none"
+              style={inputStyle()}
+            />
+          </Field>
+          {error && (
+            <div className="rounded-lg px-3 py-2 text-sm"
+              style={{ background: BRAND.colors.surfaceAlt, border: `1px solid ${BRAND.colors.borderStrong}` }}>
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <GhostButton onClick={onClose}>Cancel</GhostButton>
+            <PrimaryButton type="submit" disabled={loading}>
+              <Check size={16} /> {loading ? 'Saving…' : 'Update password'}
+            </PrimaryButton>
+          </div>
+        </form>
+      )}
+    </Modal>
   );
 }
 

@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\MagicLinkToken;
-use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
@@ -49,6 +49,22 @@ class AuthController extends Controller
         }
 
         return redirect('/?set_password_token=' . $token);
+    }
+
+    public function changePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        if (!Hash::check($request->current_password, $request->user()->password)) {
+            return response()->json(['message' => 'Current password is incorrect.'], 422);
+        }
+
+        $request->user()->update(['password' => $request->password]);
+
+        return response()->json(['message' => 'Password updated.']);
     }
 
     public function setPassword(Request $request)
