@@ -11,13 +11,16 @@ use Illuminate\Support\Str;
 
 class UserController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        abort_unless($request->user()->is_admin, 403);
         return response()->json(User::orderBy('name')->get());
     }
 
     public function store(Request $request)
     {
+        abort_unless($request->user()->is_admin, 403);
+
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
@@ -41,6 +44,8 @@ class UserController extends Controller
 
     public function update(Request $request, User $user)
     {
+        abort_unless($request->user()->is_admin, 403);
+
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email,' . $user->id,
@@ -58,8 +63,9 @@ class UserController extends Controller
         return response()->json($user->fresh());
     }
 
-    public function destroy(User $user)
+    public function destroy(Request $request, User $user)
     {
+        abort_unless($request->user()->is_admin, 403);
         $user->delete();
         return response()->json(null, 204);
     }
