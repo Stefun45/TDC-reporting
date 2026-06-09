@@ -196,7 +196,7 @@ export default function App() {
 
   const visibleCategories = useMemo(() => {
     if (!effectiveUser) return [];
-    return categories.filter((c) => hasAccess(effectiveUser, c.id));
+    return categories.filter((c) => c.active !== false && hasAccess(effectiveUser, c.id));
   }, [categories, effectiveUser]);
 
   const handleLogout = () => {
@@ -1001,13 +1001,21 @@ function AdminPanel({ categories, setCategories, users, setUsers, loadUsers, use
           <PanelList>
             {categories.map((c, i) => {
               const Icon = resolveIcon(c.icon);
+              const isActive = c.active !== false;
               return (
-                <Row key={c.id} first={i === 0}>
+                <Row key={c.id} first={i === 0} style={{ opacity: isActive ? 1 : 0.5 }}>
                   <div className="flex min-w-0 items-center gap-3">
                     <RowIcon><Icon size={16} strokeWidth={1.75} /></RowIcon>
                     <div className="min-w-0">
-                      <div className="tdc-display truncate text-sm" style={{ fontWeight: 700 }}>
-                        {c.title}
+                      <div className="flex items-center gap-2">
+                        <div className="tdc-display truncate text-sm" style={{ fontWeight: 700 }}>
+                          {c.title}
+                        </div>
+                        {!isActive && (
+                          <span className="tdc-mono rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider" style={{ background: BRAND.colors.surfaceAlt, color: BRAND.colors.textMuted }}>
+                            Hidden
+                          </span>
+                        )}
                       </div>
                       <div className="tdc-mono truncate text-xs" style={{ color: BRAND.colors.textDim }}>
                         {c.url || "—"}
@@ -1015,6 +1023,12 @@ function AdminPanel({ categories, setCategories, users, setUsers, loadUsers, use
                     </div>
                   </div>
                   <div className="flex gap-2">
+                    <GhostButton
+                      title={isActive ? "Hide from dashboard" : "Show on dashboard"}
+                      onClick={() => upsertCategory({ ...c, active: isActive ? false : undefined })}
+                    >
+                      {isActive ? <Eye size={14} /> : <EyeOff size={14} />}
+                    </GhostButton>
                     <GhostButton onClick={() => setEditingCategory(c)}>
                       <Pencil size={14} /> Edit
                     </GhostButton>
@@ -1109,11 +1123,11 @@ function PanelList({ children }) {
   );
 }
 
-function Row({ children, first }) {
+function Row({ children, first, style }) {
   return (
     <div
       className="flex items-center justify-between gap-4 px-4 py-3"
-      style={{ borderTop: first ? "none" : `1px solid ${BRAND.colors.border}` }}
+      style={{ borderTop: first ? "none" : `1px solid ${BRAND.colors.border}`, ...style }}
     >
       {children}
     </div>
@@ -1207,6 +1221,7 @@ function CategoryEditor({ category, existingIds, onClose, onSave }) {
   const [url, setUrl] = useState(category?.url ?? "");
   const [icon, setIcon] = useState(category?.icon ?? "FileBarChart");
   const [critical, setCritical] = useState(!!category?.critical);
+  const [active, setActive] = useState(category ? category.active !== false : true);
 
   const submit = (e) => {
     e.preventDefault();
@@ -1224,6 +1239,7 @@ function CategoryEditor({ category, existingIds, onClose, onSave }) {
       url: url.trim() || "#",
       icon,
       critical: critical || undefined,
+      active: active ? undefined : false,
     });
   };
 
@@ -1262,6 +1278,15 @@ function CategoryEditor({ category, existingIds, onClose, onSave }) {
             style={{ accentColor: BRAND.colors.primary }}
           />
           Mark as critical
+        </label>
+        <label className="mb-2 mt-1 flex cursor-pointer items-center gap-2.5 text-sm">
+          <input
+            type="checkbox" checked={active}
+            onChange={(e) => setActive(e.target.checked)}
+            className="h-4 w-4 cursor-pointer"
+            style={{ accentColor: BRAND.colors.primary }}
+          />
+          Active (visible on dashboard)
         </label>
         <div className="mt-6 flex justify-end gap-2">
           <GhostButton onClick={onClose}>Cancel</GhostButton>
