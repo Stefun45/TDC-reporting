@@ -219,6 +219,8 @@ export default function App() {
 
       {authLoading ? (
         <div style={{ minHeight: '100vh', background: BRAND.colors.primary }} />
+      ) : new URLSearchParams(window.location.search).get('set_password_token') && !currentUser ? (
+        <SetPassword token={new URLSearchParams(window.location.search).get('set_password_token')} onLogin={setCurrentUser} />
       ) : !currentUser ? (
         <Login onLogin={setCurrentUser} />
       ) : (
@@ -290,7 +292,8 @@ function GoogleFonts() {
    ============================================================ */
 function Login({ onLogin }) {
   const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -298,10 +301,10 @@ function Login({ onLogin }) {
     e.preventDefault();
     setLoading(true);
     setError("");
-    api.post('/api/auth/magic-link', { email: email.trim() })
-      .then((r) => r.json())
-      .then(() => { setSent(true); setLoading(false); })
-      .catch(() => { setError("Something went wrong. Please try again."); setLoading(false); });
+    api.post('/api/auth/login', { email: email.trim(), password })
+      .then((r) => r.ok ? r.json() : r.json().then((d) => Promise.reject(d.message)))
+      .then((user) => { onLogin(user); })
+      .catch((msg) => { setError(typeof msg === 'string' ? msg : 'Something went wrong.'); setLoading(false); });
   };
 
   return (
@@ -314,60 +317,161 @@ function Login({ onLogin }) {
           <Logo width={220} color={BRAND.colors.bg} />
         </div>
 
-        {sent ? (
-          <div className="space-y-4 text-center">
-            <div className="flex justify-center">
-              <Mail size={40} style={{ color: `${BRAND.colors.bg}CC` }} />
+        <form onSubmit={submit} className="space-y-4">
+          <Field label="Email" onDark>
+            <div className="relative">
+              <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: `${BRAND.colors.bg}99` }} />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                placeholder="you@thedespatchcompany.com"
+                required
+                className="w-full py-2.5 pl-9 pr-3 text-sm outline-none"
+                style={inputStyleDark()}
+              />
             </div>
-            <p className="text-sm" style={{ color: `${BRAND.colors.bg}CC` }}>
-              Check your inbox — we've sent a login link to <strong style={{ color: BRAND.colors.bg }}>{email}</strong>.
-            </p>
-            <p className="text-xs" style={{ color: `${BRAND.colors.bg}66` }}>The link expires in 15 minutes.</p>
-          </div>
-        ) : (
-          <form onSubmit={submit} className="space-y-4">
-            <Field label="Email" onDark>
-              <div className="relative">
-                <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: `${BRAND.colors.bg}99` }} />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="email"
-                  placeholder="you@thedespatchcompany.com"
-                  required
-                  className="w-full py-2.5 pl-9 pr-3 text-sm outline-none"
-                  style={inputStyleDark()}
-                />
-              </div>
-            </Field>
+          </Field>
 
-            {error && (
-              <div
-                className="rounded-lg px-3 py-2 text-sm"
-                style={{ background: `${BRAND.colors.bg}14`, color: BRAND.colors.bg, border: `1px solid ${BRAND.colors.bg}33` }}
+          <Field label="Password" onDark>
+            <div className="relative">
+              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: `${BRAND.colors.bg}99` }} />
+              <input
+                type={showPw ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+                className="w-full py-2.5 pl-9 pr-10 text-sm outline-none"
+                style={inputStyleDark()}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw((s) => !s)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1"
+                style={{ color: `${BRAND.colors.bg}99` }}
               >
-                {error}
-              </div>
-            )}
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </Field>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex w-full items-center justify-center gap-2 py-3 text-sm font-semibold transition"
-              style={{
-                background: BRAND.colors.bg,
-                color: BRAND.colors.primary,
-                borderRadius: BRAND.radius.sm,
-                opacity: loading ? 0.7 : 1,
-              }}
-              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = BRAND.colors.surfaceAlt; }}
-              onMouseLeave={(e) => { if (!loading) e.currentTarget.style.background = BRAND.colors.bg; }}
+          {error && (
+            <div
+              className="rounded-lg px-3 py-2 text-sm"
+              style={{ background: `${BRAND.colors.bg}14`, color: BRAND.colors.bg, border: `1px solid ${BRAND.colors.bg}33` }}
             >
-              {loading ? 'Sending…' : 'Send login link'}
-            </button>
-          </form>
-        )}
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex w-full items-center justify-center gap-2 py-3 text-sm font-semibold transition"
+            style={{
+              background: BRAND.colors.bg,
+              color: BRAND.colors.primary,
+              borderRadius: BRAND.radius.sm,
+              opacity: loading ? 0.7 : 1,
+            }}
+            onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = BRAND.colors.surfaceAlt; }}
+            onMouseLeave={(e) => { if (!loading) e.currentTarget.style.background = BRAND.colors.bg; }}
+          >
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function SetPassword({ token, onLogin }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (password !== confirm) { setError("Passwords do not match."); return; }
+    setLoading(true);
+    setError("");
+    api.post('/api/auth/set-password', { token, password, password_confirmation: confirm })
+      .then((r) => r.ok ? r.json() : r.json().then((d) => Promise.reject(d.message)))
+      .then((user) => {
+        window.history.replaceState({}, '', '/');
+        onLogin(user);
+      })
+      .catch((msg) => { setError(typeof msg === 'string' ? msg : 'Something went wrong.'); setLoading(false); });
+  };
+
+  return (
+    <div
+      className="grid min-h-screen place-items-center px-6"
+      style={{ background: BRAND.colors.primary, color: BRAND.colors.bg }}
+    >
+      <div className="w-full max-w-sm">
+        <div className="mb-12 flex justify-center">
+          <Logo width={220} color={BRAND.colors.bg} />
+        </div>
+        <h2 className="mb-6 text-center text-lg font-semibold" style={{ color: BRAND.colors.bg }}>Set your password</h2>
+
+        <form onSubmit={submit} className="space-y-4">
+          <Field label="Password" onDark>
+            <div className="relative">
+              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: `${BRAND.colors.bg}99` }} />
+              <input
+                type={showPw ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="At least 8 characters"
+                required minLength={8}
+                className="w-full py-2.5 pl-9 pr-10 text-sm outline-none"
+                style={inputStyleDark()}
+              />
+              <button type="button" onClick={() => setShowPw((s) => !s)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1"
+                style={{ color: `${BRAND.colors.bg}99` }}>
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </Field>
+
+          <Field label="Confirm password" onDark>
+            <div className="relative">
+              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: `${BRAND.colors.bg}99` }} />
+              <input
+                type={showPw ? "text" : "password"}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="new-password"
+                required
+                className="w-full py-2.5 pl-9 pr-3 text-sm outline-none"
+                style={inputStyleDark()}
+              />
+            </div>
+          </Field>
+
+          {error && (
+            <div className="rounded-lg px-3 py-2 text-sm"
+              style={{ background: `${BRAND.colors.bg}14`, color: BRAND.colors.bg, border: `1px solid ${BRAND.colors.bg}33` }}>
+              {error}
+            </div>
+          )}
+
+          <button type="submit" disabled={loading}
+            className="flex w-full items-center justify-center gap-2 py-3 text-sm font-semibold transition"
+            style={{ background: BRAND.colors.bg, color: BRAND.colors.primary, borderRadius: BRAND.radius.sm, opacity: loading ? 0.7 : 1 }}
+            onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = BRAND.colors.surfaceAlt; }}
+            onMouseLeave={(e) => { if (!loading) e.currentTarget.style.background = BRAND.colors.bg; }}
+          >
+            {loading ? 'Setting password…' : 'Set password & sign in'}
+          </button>
+        </form>
       </div>
     </div>
   );

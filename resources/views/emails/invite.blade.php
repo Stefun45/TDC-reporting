@@ -20,9 +20,9 @@
     <div class="logo">TDC Reporting</div>
     <h1>Hi {{ $user->name }},</h1>
     <p>{{ $invitedBy->name }} has invited you to TDC Reporting — The Despatch Company's internal reporting dashboard.</p>
-    <p>Click the button below to accept your invitation and sign in.</p>
-    <a href="{{ $loginUrl }}" class="btn">Accept invitation</a>
-    <p class="expire">This link expires in 48 hours and can only be used once. After that, you can log in from the homepage using your email address.</p>
+    <p>Click the button below to set your password and get started.</p>
+    <a href="{{ $loginUrl }}" class="btn">Set your password</a>
+    <p class="expire">This link expires in 48 hours and can only be used once. After setting your password you can log in any time at the homepage.</p>
     <p class="url">Or copy this link: {{ $loginUrl }}</p>
   </div>
 </body>

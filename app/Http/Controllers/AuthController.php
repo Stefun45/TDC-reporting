@@ -2,50 +2,27 @@
 
 namespace App\Http\Controllers;
 
-use App\Mail\MagicLinkMail;
 use App\Models\MagicLinkToken;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
-    public function requestLink(Request $request)
+    public function login(Request $request)
     {
-        $request->validate(['email' => 'required|email']);
+        $request->validate([
+            'email' => 'required|email',
+            'password' => 'required|string',
+        ]);
 
-        $user = User::where('email', strtolower($request->email))->first();
-
-        if (!$user) {
-            // Return success regardless to avoid email enumeration
-            return response()->json(['message' => 'If that email is registered, a login link has been sent.']);
+        if (!Auth::attempt(['email' => strtolower($request->email), 'password' => $request->password], true)) {
+            return response()->json(['message' => 'Invalid email or password.'], 401);
         }
 
-        $token = $this->createToken($user);
-
-        Mail::to($user->email)->send(new MagicLinkMail($user, $token));
-
-        return response()->json(['message' => 'If that email is registered, a login link has been sent.']);
-    }
-
-    public function verify(string $token)
-    {
-        $record = MagicLinkToken::where('token', $token)->with('user')->first();
-
-        if (!$record || !$record->isValid()) {
-            return redirect('/')->with('error', 'This login link has expired or already been used.');
-        }
-
-        $record->update(['used_at' => now()]);
-
-        Auth::login($record->user, remember: true);
-
-        $request = request();
         $request->session()->regenerate();
 
-        return redirect('/');
+        return response()->json(Auth::user());
     }
 
     public function logout(Request $request)
@@ -62,19 +39,37 @@ class AuthController extends Controller
         return response()->json($request->user());
     }
 
-    private function createToken(User $user): string
+    // Invite link → redirect to SPA with token in query string
+    public function inviteRedirect(string $token)
     {
-        // Invalidate any previous unused tokens
-        $user->magicLinkTokens()->whereNull('used_at')->delete();
+        $record = MagicLinkToken::where('token', $token)->first();
 
-        $token = Str::random(64);
+        if (!$record || !$record->isValid()) {
+            return redirect('/?invite_error=expired');
+        }
 
-        MagicLinkToken::create([
-            'user_id' => $user->id,
-            'token' => $token,
-            'expires_at' => now()->addMinutes(15),
+        return redirect('/?set_password_token=' . $token);
+    }
+
+    public function setPassword(Request $request)
+    {
+        $request->validate([
+            'token' => 'required|string',
+            'password' => 'required|string|min:8|confirmed',
         ]);
 
-        return $token;
+        $record = MagicLinkToken::where('token', $request->token)->with('user')->first();
+
+        if (!$record || !$record->isValid()) {
+            return response()->json(['message' => 'This link has expired or already been used.'], 422);
+        }
+
+        $record->update(['used_at' => now()]);
+        $record->user->update(['password' => $request->password]);
+
+        Auth::login($record->user, remember: true);
+        $request->session()->regenerate();
+
+        return response()->json(Auth::user());
     }
 }

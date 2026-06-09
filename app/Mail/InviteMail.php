@@ -20,7 +20,7 @@ class InviteMail extends Mailable
         string $token,
         public User $invitedBy,
     ) {
-        $this->loginUrl = url('/auth/magic-link/' . $token);
+        $this->loginUrl = url('/auth/invite/' . $token);
     }
 
     public function envelope(): Envelope
