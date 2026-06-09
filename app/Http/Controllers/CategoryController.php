@@ -65,6 +65,22 @@ class CategoryController extends Controller
         return response()->json($category->fresh());
     }
 
+    public function reorder(Request $request)
+    {
+        abort_unless($request->user()->is_admin, 403);
+
+        $request->validate([
+            'ids'   => 'required|array',
+            'ids.*' => 'string|exists:categories,id',
+        ]);
+
+        foreach ($request->ids as $i => $id) {
+            Category::where('id', $id)->update(['sort_order' => $i + 1]);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
     public function destroy(Request $request, Category $category)
     {
         abort_unless($request->user()->is_admin, 403);

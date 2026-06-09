@@ -26,7 +26,22 @@ import {
   Mail,
   Lock,
   KeyRound,
+  GripVertical,
 } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import Logo from "./LogoSvg.jsx";
 
 /* ============================================================
@@ -525,6 +540,56 @@ function Header({ onHome }) {
   );
 }
 
+function SortableCategoryRow({ c, first, onToggle, onEdit, onDelete }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: c.id });
+  const Icon = resolveIcon(c.icon);
+  const isActive = c.active !== false;
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : (isActive ? 1 : 0.5),
+        borderTop: first ? "none" : `1px solid ${BRAND.colors.border}`,
+        background: isDragging ? BRAND.colors.surfaceAlt : "transparent",
+      }}
+      className="flex items-center justify-between gap-4 px-4 py-3"
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <button
+          className="touch-none cursor-grab active:cursor-grabbing"
+          style={{ color: BRAND.colors.textMuted, flexShrink: 0 }}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical size={16} />
+        </button>
+        <RowIcon><Icon size={16} strokeWidth={1.75} /></RowIcon>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <div className="tdc-display truncate text-sm" style={{ fontWeight: 700 }}>{c.title}</div>
+            {!isActive && (
+              <span className="tdc-mono rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider"
+                    style={{ background: BRAND.colors.surfaceAlt, color: BRAND.colors.textMuted }}>
+                Hidden
+              </span>
+            )}
+          </div>
+          <div className="tdc-mono truncate text-xs" style={{ color: BRAND.colors.textDim }}>{c.url || "—"}</div>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <GhostButton title={isActive ? "Hide from dashboard" : "Show on dashboard"} onClick={onToggle}>
+          {isActive ? <Eye size={14} /> : <EyeOff size={14} />}
+        </GhostButton>
+        <GhostButton onClick={onEdit}><Pencil size={14} /> Edit</GhostButton>
+        <GhostButton onClick={onDelete} danger><Trash2 size={14} /></GhostButton>
+      </div>
+    </div>
+  );
+}
+
 function UserMenu({ user, isAdmin, onSettings, onLogout, settingsActive }) {
   const [open, setOpen] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
@@ -948,6 +1013,18 @@ function AdminPanel({ categories, setCategories, users, setUsers, loadUsers, use
       .then(() => setCategories((prev) => prev.filter((c) => c.id !== id)));
   };
 
+  const sensors = useSensors(useSensor(PointerSensor));
+  const handleDragEnd = ({ active, over }) => {
+    if (!over || active.id === over.id) return;
+    setCategories((prev) => {
+      const oldIdx = prev.findIndex((c) => c.id === active.id);
+      const newIdx = prev.findIndex((c) => c.id === over.id);
+      const reordered = arrayMove(prev, oldIdx, newIdx);
+      api.put('/api/categories/reorder', { ids: reordered.map((c) => c.id) }).catch(console.error);
+      return reordered;
+    });
+  };
+
   const saveUser = (data, existingUser) => {
     const payload = {
       name: data.name,
@@ -1014,46 +1091,20 @@ function AdminPanel({ categories, setCategories, users, setUsers, loadUsers, use
       {tab === "categories" && (
         <>
           <PanelList>
-            {categories.map((c, i) => {
-              const Icon = resolveIcon(c.icon);
-              const isActive = c.active !== false;
-              return (
-                <Row key={c.id} first={i === 0} style={{ opacity: isActive ? 1 : 0.5 }}>
-                  <div className="flex min-w-0 items-center gap-3">
-                    <RowIcon><Icon size={16} strokeWidth={1.75} /></RowIcon>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <div className="tdc-display truncate text-sm" style={{ fontWeight: 700 }}>
-                          {c.title}
-                        </div>
-                        {!isActive && (
-                          <span className="tdc-mono rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider" style={{ background: BRAND.colors.surfaceAlt, color: BRAND.colors.textMuted }}>
-                            Hidden
-                          </span>
-                        )}
-                      </div>
-                      <div className="tdc-mono truncate text-xs" style={{ color: BRAND.colors.textDim }}>
-                        {c.url || "—"}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <GhostButton
-                      title={isActive ? "Hide from dashboard" : "Show on dashboard"}
-                      onClick={() => upsertCategory({ ...c, active: !isActive })}
-                    >
-                      {isActive ? <Eye size={14} /> : <EyeOff size={14} />}
-                    </GhostButton>
-                    <GhostButton onClick={() => setEditingCategory(c)}>
-                      <Pencil size={14} /> Edit
-                    </GhostButton>
-                    <GhostButton onClick={() => deleteCategory(c.id)} danger>
-                      <Trash2 size={14} />
-                    </GhostButton>
-                  </div>
-                </Row>
-              );
-            })}
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={categories.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+                {categories.map((c, i) => (
+                  <SortableCategoryRow
+                    key={c.id}
+                    c={c}
+                    first={i === 0}
+                    onToggle={() => upsertCategory({ ...c, active: !(c.active !== false) })}
+                    onEdit={() => setEditingCategory(c)}
+                    onDelete={() => deleteCategory(c.id)}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </PanelList>
         </>
       )}
