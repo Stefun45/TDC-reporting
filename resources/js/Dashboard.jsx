@@ -92,14 +92,6 @@ const DEFAULT_CATEGORIES = [
    `perms: "*"` means access to everything.
    Admins implicitly have access to everything regardless of `perms`.
    ============================================================ */
-const DEFAULT_USERS = [
-  { email: "admin@despatchcompany.com", name: "Alex Admin", password: "admin", isAdmin: true, perms: "*" },
-  { email: "finance@despatchcompany.com", name: "Fran Finance", password: "demo", isAdmin: false, perms: ["finance", "sales"] },
-  { email: "sales@despatchcompany.com", name: "Sam Sales", password: "demo", isAdmin: false, perms: ["sales", "marketing", "finance"] },
-  { email: "eng@despatchcompany.com", name: "Eve Engineer", password: "demo", isAdmin: false, perms: ["product", "mir", "security"] },
-  { email: "marketing@despatchcompany.com", name: "Mo Marketing", password: "demo", isAdmin: false, perms: ["marketing", "sales"] },
-  { email: "people@despatchcompany.com", name: "Pat People", password: "demo", isAdmin: false, perms: ["people"] },
-];
 
 /* ============================================================
    ICON PICKER SET — curated, but any Lucide name resolves.
@@ -123,15 +115,15 @@ const resolveIcon = (name) => Lucide[name] || Lucide.FileBarChart;
 
 const hasAccess = (user, categoryId) => {
   if (!user) return false;
-  if (user.isAdmin) return true;
-  if (user.perms === "*") return true;
-  return Array.isArray(user.perms) && user.perms.includes(categoryId);
+  if (user.is_admin) return true;
+  if (!user.permissions) return true;
+  return Array.isArray(user.permissions) && user.permissions.includes(categoryId);
 };
 
 /* ============================================================
-   STORAGE — swap for real backend later.
+   STORAGE — categories only (users now live in the database).
    ============================================================ */
-const STORAGE_KEY = "tdc-reporting-state-v4";
+const STORAGE_KEY = "tdc-reporting-categories-v5";
 const loadState = () => {
   try {
     const raw = typeof window !== "undefined" && window.localStorage?.getItem(STORAGE_KEY);
@@ -143,33 +135,75 @@ const saveState = (state) => {
 };
 
 /* ============================================================
+   API UTILITY
+   ============================================================ */
+const csrfToken = () =>
+  document.head.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
+
+const api = {
+  get: (url) =>
+    fetch(url, { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+  post: (url, data) =>
+    fetch(url, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+      credentials: 'same-origin',
+      body: JSON.stringify(data),
+    }),
+  put: (url, data) =>
+    fetch(url, {
+      method: 'PUT',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+      credentials: 'same-origin',
+      body: JSON.stringify(data),
+    }),
+  del: (url) =>
+    fetch(url, {
+      method: 'DELETE',
+      headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+      credentials: 'same-origin',
+    }),
+};
+
+/* ============================================================
    ROOT APP
    ============================================================ */
 export default function App() {
   const persisted = loadState();
   const [categories, setCategories] = useState(persisted?.categories ?? DEFAULT_CATEGORIES);
-  const [users, setUsers] = useState(persisted?.users ?? DEFAULT_USERS);
-  const [authEmail, setAuthEmail] = useState(null); // email of the logged-in user
-  const [route, setRoute] = useState("dashboard");  // dashboard | settings
-  const [previewEmail, setPreviewEmail] = useState(null); // dev preview override
+  const [currentUser, setCurrentUser] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [route, setRoute] = useState("dashboard");
+  const [previewUser, setPreviewUser] = useState(null);
 
-  useEffect(() => { saveState({ categories, users }); }, [categories, users]);
+  useEffect(() => { saveState({ categories }); }, [categories]);
 
-  const authUser = users.find((u) => u.email === authEmail) ?? null;
-  const previewUser = previewEmail ? users.find((u) => u.email === previewEmail) : null;
-  const effectiveUser = previewUser ?? authUser;
-  const isAdmin = !!authUser?.isAdmin;
+  useEffect(() => {
+    api.get('/api/user')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((user) => { setCurrentUser(user); setAuthLoading(false); })
+      .catch(() => setAuthLoading(false));
+  }, []);
+
+  const loadUsers = () => {
+    api.get('/api/users').then((r) => r.json()).then(setUsers);
+  };
+
+  const effectiveUser = previewUser ?? currentUser;
+  const isAdmin = !!currentUser?.is_admin;
 
   const visibleCategories = useMemo(() => {
     if (!effectiveUser) return [];
     return categories.filter((c) => hasAccess(effectiveUser, c.id));
   }, [categories, effectiveUser]);
 
-  const handleLogin = (user) => setAuthEmail(user.email);
   const handleLogout = () => {
-    setAuthEmail(null);
-    setPreviewEmail(null);
-    setRoute("dashboard");
+    api.post('/api/logout', {}).then(() => {
+      setCurrentUser(null);
+      setPreviewUser(null);
+      setRoute("dashboard");
+    });
   };
 
   return (
@@ -183,8 +217,10 @@ export default function App() {
     >
       <GoogleFonts />
 
-      {!authUser ? (
-        <Login users={users} onLogin={handleLogin} />
+      {authLoading ? (
+        <div style={{ minHeight: '100vh', background: BRAND.colors.primary }} />
+      ) : !currentUser ? (
+        <Login onLogin={setCurrentUser} />
       ) : (
         <>
           <Header onHome={() => setRoute("dashboard")} />
@@ -205,6 +241,7 @@ export default function App() {
                 setCategories={setCategories}
                 users={users}
                 setUsers={setUsers}
+                loadUsers={loadUsers}
                 user={effectiveUser}
                 isAdmin={isAdmin}
                 route={route}
@@ -217,9 +254,10 @@ export default function App() {
           {isAdmin && (
             <DevUserSwitcher
               users={users}
+              loadUsers={loadUsers}
               currentEmail={effectiveUser.email}
-              actualEmail={authUser.email}
-              onChange={(email) => setPreviewEmail(email === authUser.email ? null : email)}
+              actualEmail={currentUser.email}
+              onChange={(u) => setPreviewUser(u?.email === currentUser.email ? null : u)}
             />
           )}
         </>
@@ -248,27 +286,22 @@ function GoogleFonts() {
 }
 
 /* ============================================================
-   LOGIN — full dark-green screen, centred logo, minimal form.
+   LOGIN — magic link, no password.
    ============================================================ */
-function Login({ users, onLogin }) {
-  const [email, setEmail] = useState("admin@despatchcompany.com");
-  const [password, setPassword] = useState("admin");
-  const [showPw, setShowPw] = useState(false);
+function Login({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const submit = (e) => {
     e.preventDefault();
-    const found = users.find(
-      (u) => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password,
-    );
-    if (!found) { setError("Invalid email or password."); return; }
+    setLoading(true);
     setError("");
-    onLogin(found);
-  };
-
-  const forgot = () => {
-    const admin = users.find((u) => u.isAdmin) ?? users[0];
-    if (admin) onLogin(admin);
+    api.post('/api/auth/magic-link', { email: email.trim() })
+      .then((r) => r.json())
+      .then(() => { setSent(true); setLoading(false); })
+      .catch(() => { setError("Something went wrong. Please try again."); setLoading(false); });
   };
 
   return (
@@ -281,82 +314,60 @@ function Login({ users, onLogin }) {
           <Logo width={220} color={BRAND.colors.bg} />
         </div>
 
-        <form onSubmit={submit} className="space-y-4">
-          <Field label="Email" onDark>
-            <div className="relative">
-              <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: `${BRAND.colors.bg}99` }} />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                className="w-full py-2.5 pl-9 pr-3 text-sm outline-none"
-                style={inputStyleDark()}
-              />
+        {sent ? (
+          <div className="space-y-4 text-center">
+            <div className="flex justify-center">
+              <Mail size={40} style={{ color: `${BRAND.colors.bg}CC` }} />
             </div>
-          </Field>
-
-          <Field label="Password" onDark>
-            <div className="relative">
-              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: `${BRAND.colors.bg}99` }} />
-              <input
-                type={showPw ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                className="w-full py-2.5 pl-9 pr-10 text-sm outline-none"
-                style={inputStyleDark()}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPw((s) => !s)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1"
-                style={{ color: `${BRAND.colors.bg}99` }}
-                aria-label={showPw ? "Hide password" : "Show password"}
-              >
-                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </Field>
-
-          {error && (
-            <div
-              className="rounded-lg px-3 py-2 text-sm"
-              style={{
-                background: `${BRAND.colors.bg}14`,
-                color: BRAND.colors.bg,
-                border: `1px solid ${BRAND.colors.bg}33`,
-              }}
-            >
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            className="flex w-full items-center justify-center gap-2 py-3 text-sm font-semibold transition"
-            style={{
-              background: BRAND.colors.bg,
-              color: BRAND.colors.primary,
-              borderRadius: BRAND.radius.sm,
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = BRAND.colors.surfaceAlt)}
-            onMouseLeave={(e) => (e.currentTarget.style.background = BRAND.colors.bg)}
-          >
-            Sign in
-          </button>
-
-          <div className="pt-2 text-center">
-            <button
-              type="button"
-              onClick={forgot}
-              className="text-xs underline-offset-4 transition hover:underline"
-              style={{ color: `${BRAND.colors.bg}CC` }}
-            >
-              Forgot password?
-            </button>
+            <p className="text-sm" style={{ color: `${BRAND.colors.bg}CC` }}>
+              Check your inbox — we've sent a login link to <strong style={{ color: BRAND.colors.bg }}>{email}</strong>.
+            </p>
+            <p className="text-xs" style={{ color: `${BRAND.colors.bg}66` }}>The link expires in 15 minutes.</p>
           </div>
-        </form>
+        ) : (
+          <form onSubmit={submit} className="space-y-4">
+            <Field label="Email" onDark>
+              <div className="relative">
+                <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: `${BRAND.colors.bg}99` }} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  placeholder="you@thedespatchcompany.com"
+                  required
+                  className="w-full py-2.5 pl-9 pr-3 text-sm outline-none"
+                  style={inputStyleDark()}
+                />
+              </div>
+            </Field>
+
+            {error && (
+              <div
+                className="rounded-lg px-3 py-2 text-sm"
+                style={{ background: `${BRAND.colors.bg}14`, color: BRAND.colors.bg, border: `1px solid ${BRAND.colors.bg}33` }}
+              >
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-2 py-3 text-sm font-semibold transition"
+              style={{
+                background: BRAND.colors.bg,
+                color: BRAND.colors.primary,
+                borderRadius: BRAND.radius.sm,
+                opacity: loading ? 0.7 : 1,
+              }}
+              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = BRAND.colors.surfaceAlt; }}
+              onMouseLeave={(e) => { if (!loading) e.currentTarget.style.background = BRAND.colors.bg; }}
+            >
+              {loading ? 'Sending…' : 'Send login link'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
@@ -467,7 +478,7 @@ function UserMenu({ user, isAdmin, onSettings, onLogout, settingsActive }) {
           <div className="px-4 py-3" style={{ borderBottom: `1px solid ${BRAND.colors.border}` }}>
             <div className="text-sm font-semibold" style={{ color: BRAND.colors.ink }}>{user.name}</div>
             <div className="truncate text-xs" style={{ color: BRAND.colors.textMuted }}>{user.email}</div>
-            {user.isAdmin && (
+            {user.is_admin && (
               <div
                 className="tdc-mono mt-2 inline-block rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.2em]"
                 style={{ background: BRAND.colors.primary, color: BRAND.colors.bg }}
@@ -700,12 +711,14 @@ function CategoryCard({ category }) {
 /* ============================================================
    ADMIN PANEL
    ============================================================ */
-function AdminPanel({ categories, setCategories, users, setUsers, user, isAdmin, route, onSettings, onLogout, onHome }) {
+function AdminPanel({ categories, setCategories, users, setUsers, loadUsers, user, isAdmin, route, onSettings, onLogout, onHome }) {
   const [tab, setTab] = useState("categories");
   const [editingCategory, setEditingCategory] = useState(null);
   const [creatingCategory, setCreatingCategory] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [creatingUser, setCreatingUser] = useState(false);
+
+  useEffect(() => { if (tab === "users") loadUsers(); }, [tab]);
 
   const upsertCategory = (cat) => {
     setCategories((prev) => {
@@ -716,25 +729,24 @@ function AdminPanel({ categories, setCategories, users, setUsers, user, isAdmin,
   const deleteCategory = (id) => {
     if (!confirm("Delete this category?")) return;
     setCategories((prev) => prev.filter((c) => c.id !== id));
-    setUsers((prev) =>
-      prev.map((u) =>
-        Array.isArray(u.perms) ? { ...u, perms: u.perms.filter((cid) => cid !== id) } : u,
-      ),
-    );
   };
 
-  const upsertUser = (user, originalEmail) => {
-    setUsers((prev) => {
-      const idx = prev.findIndex((u) => u.email === (originalEmail ?? user.email));
-      if (idx === -1) return [...prev, user];
-      const next = [...prev];
-      next[idx] = user;
-      return next;
-    });
+  const saveUser = (data, existingUser) => {
+    const payload = {
+      name: data.name,
+      email: data.email,
+      is_admin: data.isAdmin,
+      permissions: data.isAdmin ? null : data.perms,
+    };
+    const req = existingUser
+      ? api.put(`/api/users/${existingUser.id}`, payload)
+      : api.post('/api/users', payload);
+    req.then((r) => r.json()).then(() => loadUsers());
   };
-  const deleteUser = (email) => {
-    if (!confirm(`Remove ${email}?`)) return;
-    setUsers((prev) => prev.filter((u) => u.email !== email));
+
+  const deleteUser = (u) => {
+    if (!confirm(`Remove ${u.email}?`)) return;
+    api.del(`/api/users/${u.id}`).then(() => loadUsers());
   };
 
   return (
@@ -825,7 +837,7 @@ function AdminPanel({ categories, setCategories, users, setUsers, user, isAdmin,
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold">{u.name}</span>
-                      {u.isAdmin && (
+                      {u.is_admin && (
                         <span
                           className="tdc-mono rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-[0.15em]"
                           style={{ background: BRAND.colors.primary, color: BRAND.colors.bg }}
@@ -841,14 +853,14 @@ function AdminPanel({ categories, setCategories, users, setUsers, user, isAdmin,
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="tdc-mono hidden text-[11px] sm:inline" style={{ color: BRAND.colors.textMuted }}>
-                    {u.isAdmin || u.perms === "*"
+                    {u.is_admin || false
                       ? "All reports"
-                      : `${(u.perms || []).length} / ${categories.length} reports`}
+                      : `${(u.permissions || []).length} / ${categories.length} reports`}
                   </span>
                   <GhostButton onClick={() => setEditingUser(u)}>
                     <Pencil size={14} /> Edit
                   </GhostButton>
-                  <GhostButton onClick={() => deleteUser(u.email)} danger>
+                  <GhostButton onClick={() => deleteUser(u)} danger>
                     <Trash2 size={14} />
                   </GhostButton>
                 </div>
@@ -873,7 +885,7 @@ function AdminPanel({ categories, setCategories, users, setUsers, user, isAdmin,
           users={users}
           categories={categories}
           onClose={() => { setEditingUser(null); setCreatingUser(false); }}
-          onSave={(u, originalEmail) => { upsertUser(u, originalEmail); setEditingUser(null); setCreatingUser(false); }}
+          onSave={(data) => { saveUser(data, editingUser); setEditingUser(null); setCreatingUser(false); }}
         />
       )}
     </div>
@@ -1068,11 +1080,11 @@ function UserEditor({ user, users, categories, onClose, onSave }) {
   const originalEmail = user?.email;
   const [email, setEmail] = useState(user?.email ?? "");
   const [name, setName] = useState(user?.name ?? "");
-  const [isAdmin, setIsAdmin] = useState(!!user?.isAdmin);
+  const [isAdmin, setIsAdmin] = useState(!!user?.is_admin);
   const [perms, setPerms] = useState(() => {
     if (!user) return [];
-    if (user.perms === "*") return categories.map((c) => c.id);
-    return user.perms ?? [];
+    if (false) return categories.map((c) => c.id);
+    return user.permissions ?? [];
   });
   const [error, setError] = useState("");
 
@@ -1088,16 +1100,12 @@ function UserEditor({ user, users, categories, onClose, onSave }) {
     if (!trimmedEmail || !name.trim()) { setError("Name and email are required."); return; }
     const clash = users.find((u) => u.email.toLowerCase() === trimmedEmail && u.email !== originalEmail);
     if (clash) { setError("That email is already in use."); return; }
-    onSave(
-      {
-        email: trimmedEmail,
-        name: name.trim(),
-        password: user?.password ?? "demo",
-        isAdmin,
-        perms: isAdmin ? "*" : perms,
-      },
-      originalEmail,
-    );
+    onSave({
+      email: trimmedEmail,
+      name: name.trim(),
+      isAdmin,
+      perms,
+    });
   };
 
   return (
@@ -1335,7 +1343,7 @@ function Modal({ onClose, title, children, wide }) {
 /* ============================================================
    DEV USER SWITCHER — admin only. Preview as any user.
    ============================================================ */
-function DevUserSwitcher({ users, currentEmail, actualEmail, onChange }) {
+function DevUserSwitcher({ users, loadUsers, currentEmail, actualEmail, onChange }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="fixed bottom-4 right-4 z-40">
@@ -1361,7 +1369,7 @@ function DevUserSwitcher({ users, currentEmail, actualEmail, onChange }) {
               return (
                 <button
                   key={u.email}
-                  onClick={() => { onChange(u.email); setOpen(false); }}
+                  onClick={() => { onChange(u); setOpen(false); }}
                   className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm"
                   style={{
                     background: active ? BRAND.colors.primary : "transparent",
