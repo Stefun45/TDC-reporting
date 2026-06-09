@@ -122,18 +122,8 @@ const hasAccess = (user, categoryId) => {
 };
 
 /* ============================================================
-   STORAGE — categories only (users now live in the database).
+   API UTILITY (continued below)
    ============================================================ */
-const STORAGE_KEY = "tdc-reporting-categories-v5";
-const loadState = () => {
-  try {
-    const raw = typeof window !== "undefined" && window.localStorage?.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-};
-const saveState = (state) => {
-  try { window.localStorage?.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* ignore */ }
-};
 
 /* ============================================================
    API UTILITY
@@ -170,20 +160,28 @@ const api = {
    ROOT APP
    ============================================================ */
 export default function App() {
-  const persisted = loadState();
-  const [categories, setCategories] = useState(persisted?.categories ?? DEFAULT_CATEGORIES);
+  const [categories, setCategories] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [users, setUsers] = useState([]);
   const [authLoading, setAuthLoading] = useState(true);
   const [route, setRoute] = useState("dashboard");
   const [previewUser, setPreviewUser] = useState(null);
 
-  useEffect(() => { saveState({ categories }); }, [categories]);
+  const loadCategories = () => {
+    api.get('/api/categories')
+      .then((r) => r.ok ? r.json() : [])
+      .then(setCategories)
+      .catch(() => {});
+  };
 
   useEffect(() => {
     api.get('/api/user')
       .then((r) => (r.ok ? r.json() : null))
-      .then((user) => { setCurrentUser(user); setAuthLoading(false); })
+      .then((user) => {
+        setCurrentUser(user);
+        setAuthLoading(false);
+        if (user) loadCategories();
+      })
       .catch(() => setAuthLoading(false));
   }, []);
 
@@ -923,14 +921,31 @@ function AdminPanel({ categories, setCategories, users, setUsers, loadUsers, use
   useEffect(() => { if (tab === "users") loadUsers(); }, [tab]);
 
   const upsertCategory = (cat) => {
-    setCategories((prev) => {
-      const exists = prev.some((c) => c.id === cat.id);
-      return exists ? prev.map((c) => (c.id === cat.id ? cat : c)) : [...prev, cat];
-    });
+    const isNew = !categories.some((c) => c.id === cat.id);
+    const payload = {
+      id: cat.id,
+      title: cat.title,
+      description: cat.description,
+      url: cat.url,
+      icon: cat.icon,
+      critical: !!cat.critical,
+      active: cat.active !== false,
+    };
+    const req = isNew
+      ? api.post('/api/categories', payload)
+      : api.put(`/api/categories/${cat.id}`, payload);
+    req
+      .then((r) => r.ok ? r.json() : r.json().then((d) => Promise.reject(d)))
+      .then((saved) => setCategories((prev) => {
+        const exists = prev.some((c) => c.id === saved.id);
+        return exists ? prev.map((c) => (c.id === saved.id ? saved : c)) : [...prev, saved];
+      }))
+      .catch(console.error);
   };
   const deleteCategory = (id) => {
     if (!confirm("Delete this category?")) return;
-    setCategories((prev) => prev.filter((c) => c.id !== id));
+    api.del(`/api/categories/${id}`)
+      .then(() => setCategories((prev) => prev.filter((c) => c.id !== id)));
   };
 
   const saveUser = (data, existingUser) => {
@@ -1025,7 +1040,7 @@ function AdminPanel({ categories, setCategories, users, setUsers, loadUsers, use
                   <div className="flex gap-2">
                     <GhostButton
                       title={isActive ? "Hide from dashboard" : "Show on dashboard"}
-                      onClick={() => upsertCategory({ ...c, active: isActive ? false : undefined })}
+                      onClick={() => upsertCategory({ ...c, active: !isActive })}
                     >
                       {isActive ? <Eye size={14} /> : <EyeOff size={14} />}
                     </GhostButton>
