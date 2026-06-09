@@ -25,6 +25,7 @@ import {
   Cog,
   Mail,
   Lock,
+  KeyRound,
 } from "lucide-react";
 import Logo from "./LogoSvg.jsx";
 
