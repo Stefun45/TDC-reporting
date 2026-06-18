@@ -190,12 +190,15 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (currentUser) loadCategories();
+  }, [currentUser?.id]);
+
+  useEffect(() => {
     api.get('/api/user')
       .then((r) => (r.ok ? r.json() : null))
       .then((user) => {
         setCurrentUser(user);
         setAuthLoading(false);
-        if (user) loadCategories();
       })
       .catch(() => setAuthLoading(false));
   }, []);
