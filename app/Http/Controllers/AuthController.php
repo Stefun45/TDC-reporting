@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\LoginToken;
 use App\Models\MagicLinkToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -12,7 +13,7 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $request->validate([
-            'email' => 'required|email',
+            'email'    => 'required|email',
             'password' => 'required|string',
         ]);
 
@@ -20,6 +21,12 @@ class AuthController extends Controller
             return response()->json(['message' => 'Invalid email or password.'], 401);
         }
 
+        if (!Auth::user()->is_active) {
+            Auth::logout();
+            return response()->json(['message' => 'Your account has been disabled.'], 403);
+        }
+
+        Auth::user()->update(['last_login_at' => now()]);
         $request->session()->regenerate();
 
         return response()->json(Auth::user());
@@ -34,12 +41,49 @@ class AuthController extends Controller
         return response()->json(['message' => 'Logged out.']);
     }
 
+    public function webLogout(Request $request)
+    {
+        Auth::logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return redirect('/');
+    }
+
     public function me(Request $request)
     {
         return response()->json($request->user());
     }
 
-    // Invite link → redirect to SPA with token in query string
+    public function sso(Request $request)
+    {
+        $rawToken = $request->query('token', '');
+
+        if (empty($rawToken)) {
+            abort(403, 'Invalid or expired login link.');
+        }
+
+        $record = LoginToken::where('token_hash', hash('sha256', $rawToken))
+            ->with('user')
+            ->first();
+
+        if (!$record || !$record->isValid()) {
+            abort(403, 'Invalid or expired login link.');
+        }
+
+        if (!$record->user->is_active) {
+            abort(403, 'Your account has been disabled.');
+        }
+
+        $record->update(['used_at' => now()]);
+        $record->user->update(['last_login_at' => now()]);
+
+        Auth::login($record->user, remember: false);
+        $request->session()->regenerate();
+
+        return redirect('/');
+    }
+
     public function inviteRedirect(string $token)
     {
         $record = MagicLinkToken::where('token', $token)->first();
@@ -55,7 +99,7 @@ class AuthController extends Controller
     {
         $request->validate([
             'current_password' => 'required|string',
-            'password' => 'required|string|min:8|confirmed',
+            'password'         => 'required|string|min:8|confirmed',
         ]);
 
         if (!Hash::check($request->current_password, $request->user()->password)) {
@@ -70,7 +114,7 @@ class AuthController extends Controller
     public function setPassword(Request $request)
     {
         $request->validate([
-            'token' => 'required|string',
+            'token'    => 'required|string',
             'password' => 'required|string|min:8|confirmed',
         ]);
 

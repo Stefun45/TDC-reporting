@@ -19,6 +19,11 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Session\Middleware\StartSession::class,
             \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
         ]);
+        $middleware->alias([
+            'admin.api' => \App\Http\Middleware\AdminApiAuth::class,
+            'active'    => \App\Http\Middleware\EnsureUserIsActive::class,
+        ]);
+        $middleware->validateCsrfTokens(except: ['api/admin/*']);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

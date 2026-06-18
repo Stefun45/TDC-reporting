@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'is_admin', 'permissions'])]
+#[Fillable(['name', 'email', 'password', 'is_admin', 'permissions', 'is_active', 'last_login_at'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -20,14 +20,21 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-            'is_admin' => 'boolean',
-            'permissions' => 'array',
+            'password'          => 'hashed',
+            'is_admin'          => 'boolean',
+            'is_active'         => 'boolean',
+            'last_login_at'     => 'datetime',
+            'permissions'       => 'array',
         ];
     }
 
     public function magicLinkTokens()
     {
         return $this->hasMany(MagicLinkToken::class);
+    }
+
+    public function loginTokens()
+    {
+        return $this->hasMany(LoginToken::class);
     }
 }
